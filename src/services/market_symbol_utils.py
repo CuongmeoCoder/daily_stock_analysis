@@ -111,3 +111,33 @@ def suffix_base_lookup_allowed(canonical_code: str) -> bool:
 def market_suffixes(market: str) -> tuple[str, ...]:
     spec = _MARKET_TO_SPEC.get((market or "").strip().lower())
     return spec.suffixes if spec else ()
+
+
+def normalize_vn_stock_symbol(stock_code: str) -> Optional[str]:
+    """Normalize explicit Vietnam exchange symbols such as ``HOSE:VIC``.
+
+    Vietnam tickers collide with ordinary US-style 3-letter symbols, so bare
+    ``VIC``/``VCB`` is intentionally not treated as Vietnam. Users must opt in
+    with an exchange prefix.
+    """
+
+    code = (stock_code or "").strip().upper()
+    if ":" not in code:
+        return None
+    exchange, symbol = code.split(":", 1)
+    if exchange not in {"HOSE", "HNX", "UPCOM"}:
+        return None
+    if not (1 <= len(symbol) <= 10 and symbol.replace("-", "").isalnum()):
+        return None
+    return f"{exchange}:{symbol}"
+
+
+def is_vn_stock_symbol(stock_code: str) -> bool:
+    return normalize_vn_stock_symbol(stock_code) is not None
+
+
+def get_vn_ticker(stock_code: str) -> Optional[str]:
+    normalized = normalize_vn_stock_symbol(stock_code)
+    if normalized is None:
+        return None
+    return normalized.split(":", 1)[1]

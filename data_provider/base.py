@@ -26,7 +26,7 @@ import pandas as pd
 import numpy as np
 from src.data.stock_index_loader import get_index_stock_name
 from src.data.stock_mapping import STOCK_NAME_MAP, is_meaningful_stock_name
-from src.services.market_symbol_utils import is_suffix_market_symbol
+from src.services.market_symbol_utils import is_suffix_market_symbol, is_vn_stock_symbol, normalize_vn_stock_symbol
 from src.services.run_diagnostics import record_provider_run, record_provider_run_started
 from .fundamental_adapter import AkshareFundamentalAdapter
 from .yfinance_fundamental_adapter import YfinanceFundamentalAdapter
@@ -96,6 +96,10 @@ def normalize_stock_code(stock_code: str) -> str:
     """
     code = stock_code.strip()
     upper = code.upper()
+
+    vn_symbol = normalize_vn_stock_symbol(upper)
+    if vn_symbol:
+        return vn_symbol
 
     # Normalize HK prefix to a canonical 5-digit form (e.g. hk1810 -> HK01810)
     if upper.startswith('HK') and not upper.startswith('HK.'):
@@ -196,6 +200,11 @@ def _is_tw_market(code: str) -> bool:
     return is_suffix_market_symbol(code, "tw")
 
 
+def _is_vn_market(code: str) -> bool:
+    """Return whether code is an explicit Vietnam exchange symbol."""
+    return is_vn_stock_symbol(code)
+
+
 def _is_etf_code(code: str) -> bool:
     """判定 A 股 ETF 基金代码（保守规则）。"""
     normalized = normalize_stock_code(code)
@@ -236,7 +245,7 @@ def _is_meaningful_chip_distribution(chip: Any) -> bool:
 
 
 def _market_tag(code: str) -> str:
-    """返回市场标签: cn/us/hk/jp/kr/tw."""
+    """返回市场标签: cn/us/hk/jp/kr/tw/vn."""
     if _is_us_market(code):
         return "us"
     if _is_hk_market(code):
@@ -247,6 +256,8 @@ def _market_tag(code: str) -> str:
         return "kr"
     if _is_tw_market(code):
         return "tw"
+    if _is_vn_market(code):
+        return "vn"
     return "cn"
 
 
@@ -620,6 +631,7 @@ class DataFetcherManager:
         "PytdxFetcher": {"cn"},
         "BaostockFetcher": {"cn"},
         "YfinanceFetcher": {"cn", "hk", "us", "jp", "kr", "tw"},
+        "VnstockFetcher": {"vn"},
         "LongbridgeFetcher": {"hk", "us"},
         "FinnhubFetcher": {"us"},
         "AlphaVantageFetcher": {"us"},
@@ -1159,6 +1171,7 @@ class DataFetcherManager:
         from .pytdx_fetcher import PytdxFetcher
         from .baostock_fetcher import BaostockFetcher
         from .yfinance_fetcher import YfinanceFetcher
+        from .vnstock_fetcher import VnstockFetcher
         from .longbridge_fetcher import LongbridgeFetcher
         config = get_config()
         # 创建所有数据源实例（优先级在各 Fetcher 的 __init__ 中确定）
@@ -1168,6 +1181,7 @@ class DataFetcherManager:
         pytdx = PytdxFetcher()      # 通达信数据源（可配 PYTDX_HOST/PYTDX_PORT）
         baostock = BaostockFetcher()
         yfinance = YfinanceFetcher()
+        vnstock = VnstockFetcher()
         optional_fetchers: List[BaseFetcher] = []
 
         tushare_token = (getattr(config, "tushare_token", None) or "").strip()
@@ -1219,6 +1233,7 @@ class DataFetcherManager:
                 pytdx,
                 baostock,
                 yfinance,
+                vnstock,
                 *optional_fetchers,
             ]
 
@@ -1286,7 +1301,8 @@ class DataFetcherManager:
         is_jp = (not is_us) and (not is_hk) and _is_jp_market(stock_code)
         is_kr = (not is_us) and (not is_hk) and _is_kr_market(stock_code)
         is_tw = (not is_us) and (not is_hk) and _is_tw_market(stock_code)
-        market = "us" if is_us else "hk" if is_hk else "jp" if is_jp else "kr" if is_kr else "tw" if is_tw else "cn"
+        is_vn = (not is_us) and (not is_hk) and _is_vn_market(stock_code)
+        market = "us" if is_us else "hk" if is_hk else "jp" if is_jp else "kr" if is_kr else "tw" if is_tw else "vn" if is_vn else "cn"
         if market != "cn":
             fetchers = self._filter_daily_fetchers_for_market(fetchers, market)
         fetchers = self._filter_fetchers_by_capability(fetchers, capability="daily_data")
@@ -1764,6 +1780,7 @@ class DataFetcherManager:
         is_jp = (not is_us) and (not is_hk) and _is_jp_market(stock_code)
         is_kr = (not is_us) and (not is_hk) and _is_kr_market(stock_code)
         is_tw = (not is_us) and (not is_hk) and _is_tw_market(stock_code)
+        is_vn = (not is_us) and (not is_hk) and _is_vn_market(stock_code)
 
         if is_jp or is_kr or is_tw:
             market_label = "日股" if is_jp else "韩股" if is_kr else "台股"
@@ -1776,6 +1793,18 @@ class DataFetcherManager:
                 )
             if log_final_failure:
                 logger.info(f"[实时行情] {market_label} {stock_code} 无可用数据源")
+            return None
+
+        if is_vn:
+            quote = self._try_fetcher_quote(stock_code, "VnstockFetcher")
+            if quote is not None:
+                logger.info(f"[realtime] Vietnam stock {stock_code} fetched (source: VnstockFetcher)")
+                return self._enrich_realtime_quote(
+                    quote,
+                    realtime_cache_ttl=getattr(config, "realtime_cache_ttl", None),
+                )
+            if log_final_failure:
+                logger.info(f"[realtime] Vietnam stock {stock_code} has no available data source")
             return None
 
         if is_us or is_hk:
@@ -2250,6 +2279,16 @@ class DataFetcherManager:
         # Normalize code (strip SH/SZ prefix etc.)
         stock_code = normalize_stock_code(stock_code)
         static_name = STOCK_NAME_MAP.get(stock_code)
+
+        if _is_vn_market(stock_code):
+            fetcher = self._get_fetcher_by_name("VnstockFetcher", capability="stock_name")
+            if fetcher is not None and hasattr(fetcher, "get_stock_name"):
+                try:
+                    name = self._call_fetcher_method(fetcher, "get_stock_name", stock_code)
+                    if is_meaningful_stock_name(name, stock_code):
+                        return self._cache_stock_name(stock_code, name) or name
+                except Exception as exc:
+                    logger.debug("[stock name] VnstockFetcher failed for %s: %s", stock_code, exc)
 
         # 1. 先检查缓存
         cached_name = self._get_cached_stock_name(stock_code)

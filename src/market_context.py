@@ -12,7 +12,7 @@ Fixes: https://github.com/ZhuLinsen/daily_stock_analysis/issues/644
 import re
 from typing import Optional
 
-from src.services.market_symbol_utils import get_suffix_market
+from src.services.market_symbol_utils import get_suffix_market, is_vn_stock_symbol
 
 
 def detect_market(stock_code: Optional[str]) -> str:
@@ -25,6 +25,9 @@ def detect_market(stock_code: Optional[str]) -> str:
         return "cn"
 
     code = stock_code.strip().upper()
+
+    if is_vn_stock_symbol(code):
+        return "vn"
 
     # HK stocks: HK00700, 00700.HK, or 5-digit pure numbers
     if code.startswith("HK") or code.endswith(".HK"):
@@ -146,6 +149,22 @@ _MARKET_GUIDELINES = {
             "price limit; do not apply China A-share-specific concepts such as Northbound flows or Dragon Tiger lists."
         ),
     },
+}
+
+_MARKET_ROLES["vn"] = {
+    "zh": "co phieu Viet Nam",
+    "en": "Vietnam stock",
+}
+
+_MARKET_GUIDELINES["vn"] = {
+    "zh": (
+        "- Doi tuong phan tich la **co phieu Viet Nam** (HOSE/HNX/UPCoM, vi du `HOSE:VIC`).\n"
+        "- Phan tich theo boi canh thi truong Viet Nam: ty gia VND, lai suat/chinh sach trong nuoc, dong von ngoai, chu ky nganh va quy che giao dich HOSE; khong ap dung cac khai niem rieng cua A-share nhu Northbound flows hay Dragon Tiger lists."
+    ),
+    "en": (
+        "- This analysis covers a **Vietnam stock** (HOSE/HNX/UPCoM, e.g. `HOSE:VIC`).\n"
+        "- Use Vietnam-market context: VND FX, local rates/policy, foreign flow, sector cycle, and HOSE trading rules; do not apply China A-share concepts such as Northbound flows or Dragon Tiger lists."
+    ),
 }
 
 

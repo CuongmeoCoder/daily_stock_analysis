@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from src.services.market_symbol_utils import get_suffix_market
+from src.services.market_symbol_utils import get_suffix_market, is_vn_stock_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ except ImportError:
     )
 
 # Market -> exchange code (exchange-calendars)
-MARKET_EXCHANGE = {"cn": "XSHG", "hk": "XHKG", "us": "XNYS", "jp": "XTKS", "kr": "XKRX", "tw": "XTAI"}
+MARKET_EXCHANGE = {"cn": "XSHG", "hk": "XHKG", "us": "XNYS", "jp": "XTKS", "kr": "XKRX", "tw": "XTAI", "vn": ""}
 
 # Market -> IANA timezone for "today"
 MARKET_TIMEZONE = {
@@ -48,6 +48,7 @@ MARKET_TIMEZONE = {
     "jp": "Asia/Tokyo",
     "kr": "Asia/Seoul",
     "tw": "Asia/Taipei",
+    "vn": "Asia/Ho_Chi_Minh",
 }
 
 # P0 market phase baseline (Issue #1386). This is an intentionally small
@@ -128,6 +129,8 @@ def get_market_for_stock(code: str) -> Optional[str]:
         return "us"
     if is_hk_stock_code(code):
         return "hk"
+    if is_vn_stock_symbol(code):
+        return "vn"
     suffix_market = get_suffix_market(code)
     if suffix_market:
         return suffix_market

@@ -38,6 +38,7 @@ from .tushare_fetcher import TushareFetcher
 from .pytdx_fetcher import PytdxFetcher
 from .baostock_fetcher import BaostockFetcher
 from .yfinance_fetcher import YfinanceFetcher
+from .vnstock_fetcher import VnstockFetcher
 from .longbridge_fetcher import LongbridgeFetcher
 from .finnhub_fetcher import FinnhubFetcher
 from .alphavantage_fetcher import AlphaVantageFetcher
@@ -53,6 +54,7 @@ __all__ = [
     'PytdxFetcher',
     'BaostockFetcher',
     'YfinanceFetcher',
+    'VnstockFetcher',
     'LongbridgeFetcher',
     'FinnhubFetcher',
     'AlphaVantageFetcher',

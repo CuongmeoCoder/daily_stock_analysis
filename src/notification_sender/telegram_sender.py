@@ -11,6 +11,7 @@ from typing import Optional
 import requests
 import time
 import re
+import os
 
 from src.config import Config
 
@@ -79,6 +80,7 @@ class TelegramSender:
 
         try:
             # Telegram API 端点
+            content = self._maybe_translate_for_telegram(content)
             api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
             # Telegram 消息最大长度 4096 字符
@@ -96,6 +98,51 @@ class TelegramSender:
             import traceback
             logger.debug(traceback.format_exc())
             return False
+
+    def _maybe_translate_for_telegram(self, content: str) -> str:
+        """Translate Telegram notifications to Vietnamese when configured."""
+        target_language = (os.getenv("TELEGRAM_LANGUAGE") or "").strip().lower()
+        if target_language not in {"vi", "vn", "vietnamese", "tieng-viet", "tieng_viet"}:
+            return content
+        if not content.strip():
+            return content
+        if not (os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEYS")):
+            logger.warning("TELEGRAM_LANGUAGE=vi but Gemini key is not configured; sending original content")
+            return content
+
+        model = (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip()
+        if not model.startswith("gemini/"):
+            model = f"gemini/{model}"
+
+        prompt = (
+            "Translate this stock-analysis Telegram message into natural Vietnamese with full diacritics.\n"
+            "Keep stock tickers, prices, percentages, scores, dates, and URLs exactly as written.\n"
+            "Keep it concise and readable on Telegram. Preserve the original caution level and do not add new facts.\n"
+            "Return only the translated message.\n\n"
+            f"{content}"
+        )
+        try:
+            from litellm import completion
+
+            response = completion(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You translate financial briefings into Vietnamese. Do not add investment advice.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=2500,
+            )
+            translated = response.choices[0].message.content  # type: ignore[attr-defined]
+            if translated and str(translated).strip():
+                logger.info("Telegram content translated to Vietnamese")
+                return str(translated).strip()
+        except Exception as exc:
+            logger.warning("Telegram Vietnamese translation failed; sending original content: %s", exc)
+        return content
 
     def _send_telegram_message(
         self,
