@@ -1,4 +1,4 @@
-name: 每日股票分析
+name: Daily Stock Analysis
 
 on:
   # 定时触发 - 周一到周五，Asia/Bangkok / Vietnam 09:00 (UTC 02:00)
